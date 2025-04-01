@@ -4,30 +4,28 @@ from scipy.integrate import solve_ivp
 import pandas as pd
 import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="Biocatalytic Process Simulator", layout="wide")
-st.title("🧪 Biocatalytic Process Simulation Software")
+st.set_page_config(page_title="Biocatalytic Simulation App", layout="wide")
+st.title("🧪 Biocatalytic Process Simulator")
 
-# Sidebar inputs
+# Sidebar parameters
 st.sidebar.header("🔧 Simulation Parameters")
 mode = st.sidebar.selectbox("Select Mode", ["batch", "fed-batch", "continuous"])
-total_time = st.sidebar.slider("Total Time (min)", 10, 300, 120)
 TK_conc = st.sidebar.number_input("TK Concentration (mM)", value=0.00032)
 TA_conc = st.sidebar.number_input("TA Concentration (mM)", value=0.00032)
-flow_rate = st.sidebar.number_input("Flow Rate (mL/min)", value=0.1)
-feed_HPA = st.sidebar.number_input("Feed HPA (mM)", value=200)
-feed_GA = st.sidebar.number_input("Feed GA (mM)", value=200)
-
-# Initial conditions
 HPA0 = st.sidebar.number_input("Initial HPA (mM)", value=100)
 GA0 = st.sidebar.number_input("Initial GA (mM)", value=100)
-ERY0 = 0
 MBA0 = st.sidebar.number_input("Initial MBA (mM)", value=50)
+feed_HPA = st.sidebar.number_input("Feed HPA (mM)", value=200)
+feed_GA = st.sidebar.number_input("Feed GA (mM)", value=200)
+flow_rate = st.sidebar.number_input("Flow Rate (mL/min)", value=0.1)
+time_span = st.sidebar.slider("Total Time (min)", 10, 300, 120)
+
+reactor_volume = 1.0
+ERY0 = 0
 AP0 = 0
 ABT0 = 0
 AR0 = 1
-reactor_volume = 1.0
 
-# Constants
 Ka_TK = 13.2
 Kia_TK = 42.2
 Kb_TK = 16.1
@@ -42,7 +40,6 @@ kf = 95.1
 kr = 12.0
 Keq = 843
 
-# ODE model
 def model(t, y):
     HPA, GA, ERY, MBA, AP, ABT, AR = y
     Vmax_TK = Kcat_TK * TK_conc * AR
@@ -52,10 +49,8 @@ def model(t, y):
                 HPA * GA + (Ka_TK / Kiq_TK) * GA * ERY +
                 (Ka_TK * Kib_TK / Kiq_TK) * ERY)
     v_TK = num_TK / denom_TK
-
     Ktox = 483.3 * GA / (7.357e7 + GA)
     dAR_dt = -Ktox * AR
-
     Vmax_TA = kf * kr * TA_conc
     driving_force = (MBA * ERY - (ABT * AP) / Keq)
     denom_TA = (Km_MBA * Km_ERY + Km_ERY * MBA + Km_MBA * ERY + MBA * ERY)
@@ -68,10 +63,10 @@ def model(t, y):
     dAP_dt = v_TA
     dABT_dt = v_TA
 
-    if mode == "fed-batch":
+    if mode == 'fed-batch':
         dHPA_dt += (flow_rate / reactor_volume) * (feed_HPA - HPA)
         dGA_dt += (flow_rate / reactor_volume) * (feed_GA - GA)
-    elif mode == "continuous":
+    elif mode == 'continuous':
         dHPA_dt += (flow_rate / reactor_volume) * (feed_HPA - HPA)
         dGA_dt += (flow_rate / reactor_volume) * (feed_GA - GA)
         dERY_dt -= (flow_rate / reactor_volume) * ERY
@@ -81,12 +76,10 @@ def model(t, y):
 
     return [dHPA_dt, dGA_dt, dERY_dt, dMBA_dt, dAP_dt, dABT_dt, dAR_dt]
 
-# Run simulation
 if st.button("▶ Run Simulation"):
     y0 = [HPA0, GA0, ERY0, MBA0, AP0, ABT0, AR0]
-    t_span = (0, total_time)
-    t_eval = np.linspace(*t_span, 300)
-    sol = solve_ivp(model, t_span, y0, t_eval=t_eval)
+    t_eval = np.linspace(0, time_span, 300)
+    sol = solve_ivp(model, (0, time_span), y0, t_eval=t_eval)
 
     df = pd.DataFrame({
         'Time (min)': sol.t,
@@ -99,12 +92,30 @@ if st.button("▶ Run Simulation"):
         'Enzyme Activity': sol.y[6]
     })
 
-    st.success("✅ Simulation completed!")
-    st.line_chart(df.set_index('Time (min)'))
-
     yield_final = sol.y[5][-1] / MBA0 * 100
     st.write(f"**Final ABT Yield:** {yield_final:.2f}%")
     st.write(f"**Final ABT Concentration:** {sol.y[5][-1]:.2f} mM")
 
+    # Plot ERY
+    fig1, ax1 = plt.subplots()
+    ax1.plot(sol.t, sol.y[2], label='[ERY]', color='blue')
+    ax1.set_title("Production of ERY")
+    ax1.set_xlabel("Time (min)")
+    ax1.set_ylabel("Concentration (mM)")
+    ax1.legend()
+    ax1.grid(True)
+    st.pyplot(fig1)
+
+    # Plot ABT
+    fig2, ax2 = plt.subplots()
+    ax2.plot(sol.t, sol.y[5], label='[ABT]', color='green')
+    ax2.set_title("Formation of ABT")
+    ax2.set_xlabel("Time (min)")
+    ax2.set_ylabel("Concentration (mM)")
+    ax2.legend()
+    ax2.grid(True)
+    st.pyplot(fig2)
+
+    # Download CSV
     csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button("📥 Download Results as CSV", data=csv, file_name="biocatalytic_simulation.csv", mime="text/csv")
+    st.download_button("📥 Download Results as CSV", data=csv, file_name="results.csv", mime="text/csv")
